@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+etat.json
+*.tmp
+*.bak*
+*.avant-*

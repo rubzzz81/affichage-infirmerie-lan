@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Infirmerie</title>
+<style>
+  :root { --c: #1e8e3e; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: "DejaVu Sans", "Segoe UI", Arial, sans-serif;
+    background: #f4f5f7; color: #202124;
+    display: grid; grid-template-rows: auto 1fr auto; min-height: 100vh;
+    cursor: none;
+  }
+  body.commande { cursor: auto; }
+  header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 2.2vh 4vw; background: #fff; border-bottom: 1px solid #dadce0;
+  }
+  header .lycee { font-size: 3.6vh; font-weight: 700; }
+  header .inf { font-size: 2.6vh; color: #5f6368; margin-top: .4vh; }
+  header .heure { font-size: 5vh; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+  header .date { font-size: 2.2vh; color: #5f6368; text-align: right; }
+
+  main {
+    background: var(--c); color: #fff; transition: background .6s;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    text-align: center; padding: 4vh 4vw; gap: 2vh;
+  }
+  main img { max-height: 30vh; max-width: 60vw; }
+  main .libelle { font-size: 13vh; font-weight: 800; line-height: 1.05; text-transform: uppercase; }
+  main .detail { font-size: 4.2vh; opacity: .95; }
+
+  footer { background: #fff; border-top: 1px solid #dadce0; padding: 2vh 4vw; }
+  footer h2 { font-size: 2.4vh; color: #5f6368; font-weight: 600; margin-bottom: 1vh; }
+  .horaires { display: grid; grid-template-columns: repeat(auto-fit, minmax(16vw, 1fr)); gap: 1vh 2vw; }
+  .jour { padding: 1vh 1.2vw; border-radius: 1vh; background: #f1f3f4; }
+  .jour b { display: block; font-size: 2.2vh; text-transform: capitalize; }
+  .jour span { font-size: 2.2vh; color: #3c4043; }
+  .jour.auj { background: #202124; color: #fff; }
+  .jour.auj span { color: #fff; }
+
+  .boutons { display: none; gap: 1vw; justify-content: center; margin-top: 2vh; flex-wrap: wrap; }
+  body.commande .boutons { display: flex; }
+  .boutons button {
+    font: inherit; font-size: 2.2vh; padding: 1.2vh 2vw; border: 0; border-radius: 1vh;
+    color: #fff; cursor: pointer;
+  }
+  .reglages { position: fixed; bottom: 1.2vh; right: 1.2vw; width: 5vh; height: 5vh;
+    display: flex; align-items: center; justify-content: center; border-radius: 50%;
+    background: #fff; border: 1px solid #dadce0; color: #5f6368; text-decoration: none;
+    font-size: 3vh; opacity: .85; cursor: pointer; }
+  .reglages:hover { opacity: 1; }
+  .hors-ligne { position: fixed; bottom: 1vh; right: 7vh; background: #000a; color: #fff;
+    padding: .6vh 1vw; border-radius: .6vh; font-size: 1.8vh; display: none; }
+
+  @media (max-width: 700px) {
+    header { flex-direction: column; align-items: flex-start; gap: 1vh; }
+    header .heure, header .date { text-align: left; }
+    main .libelle { font-size: 9vh; }
+    .horaires { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <div class="lycee" id="lycee">&nbsp;</div>
+    <div class="inf" id="inf">&nbsp;</div>
+  </div>
+  <div>
+    <div class="heure" id="heure">--:--</div>
+    <div class="date" id="date">&nbsp;</div>
+  </div>
+</header>
+
+<main id="etat">
+  <img id="image" alt="" hidden>
+  <div class="libelle" id="libelle">…</div>
+  <div class="detail" id="detail"></div>
+</main>
+
+<footer>
+  <h2>Horaires de l'infirmerie</h2>
+  <div class="horaires" id="horaires"></div>
+  <div class="boutons" id="boutons"></div>
+</footer>
+<a class="reglages" href="/reglages" title="Réglages" aria-label="Réglages">⚙</a>
+<div class="hors-ligne" id="horsligne">Connexion au serveur perdue…</div>
+
+<script>
+const JOURS = ["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
+const $ = id => document.getElementById(id);
+let version = -1, configVersion = 0, config = null;
+
+// Ajouter ?commande à l'adresse pour afficher les boutons (ex. PC de l'infirmière)
+if (new URLSearchParams(location.search).has("commande")) document.body.classList.add("commande");
+
+function horloge() {
+  const d = new Date();
+  $("heure").textContent = d.toLocaleTimeString("fr-FR", {hour: "2-digit", minute: "2-digit"});
+  $("date").textContent = d.toLocaleDateString("fr-FR", {weekday: "long", day: "numeric", month: "long"});
+  const auj = JOURS[d.getDay()];
+  document.querySelectorAll(".jour").forEach(el => el.classList.toggle("auj", el.dataset.jour === auj));
+}
+
+function afficher(e) {
+  version = e.version;
+  document.documentElement.style.setProperty("--c", e.couleur || "#1e8e3e");
+  $("libelle").textContent = e.libelle;
+  $("detail").textContent = e.detail || "";
+  const img = $("image");
+  if (e.image) { img.src = e.image; img.hidden = false; } else { img.hidden = true; }
+}
+
+async function chargerConfig() {
+  config = await (await fetch("/api/config")).json();
+  $("lycee").textContent = config.lycee;
+  $("inf").textContent = "Infirmière : " + config.infirmiere;
+  $("horaires").innerHTML = "";
+  for (const [jour, h] of Object.entries(config.horaires)) {
+    const div = document.createElement("div");
+    div.className = "jour"; div.dataset.jour = jour.toLowerCase();
+    div.innerHTML = "<b></b><span></span>";
+    div.querySelector("b").textContent = jour;
+    div.querySelector("span").textContent = h;
+    $("horaires").appendChild(div);
+  }
+  $("boutons").innerHTML = "";
+  if (config.modification_web) {
+    for (const e of config.etats) {
+      const b = document.createElement("button");
+      b.textContent = e.libelle; b.style.background = e.couleur;
+      b.onclick = () => fetch("/api/etat", {method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({etat: e.id})}).then(r => r.json()).then(afficher);
+      $("boutons").appendChild(b);
+    }
+  }
+  horloge();
+}
+
+async function rafraichir() {
+  try {
+    if (!config) await chargerConfig();
+    let e = await (await fetch("/api/etat", {cache: "no-store"})).json();
+    if (e.config_version !== configVersion) {  // lycée / horaires modifiés depuis le petit écran
+      configVersion = e.config_version; await chargerConfig(); version = -1;
+    }
+    if (e.version !== version || $("libelle").textContent === "…") afficher(e);
+    $("horsligne").style.display = "none";
+  } catch (err) {
+    $("horsligne").style.display = "block";
+  }
+}
+
+rafraichir();
+setInterval(rafraichir, 1500);
+setInterval(horloge, 10000);
+</script>
+</body>
+</html>

@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Réglages infirmerie</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Segoe UI", "DejaVu Sans", Arial, sans-serif; background: #f4f5f7; color: #202124; }
+  main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  p.sous { color: #5f6368; margin: 0 0 24px; }
+  .carte { background: #fff; border: 1px solid #dadce0; border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+  .carte h2 { font-size: 16px; margin: 0 0 14px; }
+  label { display: block; font-size: 14px; color: #3c4043; margin: 12px 0 4px; }
+  input { width: 100%; font: inherit; font-size: 16px; padding: 10px 12px; border: 1px solid #c4c7c5; border-radius: 6px; background: #fff; }
+  input:focus { outline: 2px solid #1a73e8; border-color: transparent; }
+  .jour { display: grid; grid-template-columns: 110px 1fr; gap: 10px; align-items: center; margin-bottom: 8px; }
+  .jour span { text-transform: capitalize; font-weight: 600; }
+  button { font: inherit; font-size: 16px; padding: 11px 20px; border: 0; border-radius: 6px; background: #1a73e8; color: #fff; cursor: pointer; }
+  button.second { background: #e8eaed; color: #202124; }
+  button:disabled { opacity: .6; cursor: default; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .msg { margin-top: 12px; font-size: 15px; min-height: 1.4em; }
+  .msg.ok { color: #1e8e3e; } .msg.err { color: #c5221f; }
+  .petit { font-size: 13px; color: #5f6368; margin-top: 6px; }
+  #formulaire { display: none; }
+  @media (max-width: 480px) { .jour { grid-template-columns: 1fr; gap: 4px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Réglages de l'affichage</h1>
+  <p class="sous">Infirmerie – accessible uniquement depuis le réseau du lycée.</p>
+
+  <section class="carte" id="connexion">
+    <h2>Code d'accès</h2>
+    <form id="formCode" class="actions">
+      <input id="code" type="password" inputmode="numeric" autocomplete="off" placeholder="Code" style="max-width:200px" required>
+      <button type="submit">Entrer</button>
+    </form>
+    <div class="msg" id="msgCode"></div>
+  </section>
+
+  <form id="formulaire">
+    <section class="carte">
+      <h2>Établissement</h2>
+      <label for="lycee">Nom du lycée</label>
+      <input id="lycee" maxlength="120" required>
+      <label for="infirmiere">Nom de l'infirmière</label>
+      <input id="infirmiere" maxlength="120" required>
+    </section>
+
+    <section class="carte">
+      <h2>Horaires</h2>
+      <div id="horaires"></div>
+      <div class="petit">Laisser vide pour ne pas afficher un jour.</div>
+    </section>
+
+    <section class="carte">
+      <h2>Changer le code d'accès (facultatif)</h2>
+      <label for="nouveau">Nouveau code (4 à 8 chiffres)</label>
+      <input id="nouveau" type="password" inputmode="numeric" autocomplete="new-password" pattern="[0-9]{4,8}">
+      <div class="petit">Le même code sert sur le petit écran tactile.</div>
+    </section>
+
+    <div class="actions">
+      <button type="submit" id="enregistrer">Enregistrer</button>
+      <a href="/"><button type="button" class="second">Voir l'affichage</button></a>
+    </div>
+    <div class="msg" id="msg"></div>
+  </form>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const JOURS = ["lundi","mardi","mercredi","jeudi","vendredi","samedi"];
+let code = "";
+
+async function post(donnees) {
+  const r = await fetch("/api/reglages", {method: "POST",
+    headers: {"Content-Type": "application/json"}, body: JSON.stringify(donnees)});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.erreur || ("Erreur " + r.status));
+  return j;
+}
+
+async function charger() {
+  const c = await (await fetch("/api/config", {cache: "no-store"})).json();
+  $("lycee").value = c.lycee || "";
+  $("infirmiere").value = c.infirmiere || "";
+  const h = c.horaires || {};
+  const jours = [...new Set([...JOURS, ...Object.keys(h)])];
+  $("horaires").innerHTML = "";
+  for (const j of jours) {
+    const div = document.createElement("div");
+    div.className = "jour";
+    div.innerHTML = '<span></span><input maxlength="80">';
+    div.querySelector("span").textContent = j;
+    const inp = div.querySelector("input");
+    inp.dataset.jour = j; inp.value = h[j] || "";
+    inp.placeholder = "ex. 8h00 - 12h00 / 13h00 - 17h00";
+    $("horaires").appendChild(div);
+  }
+}
+
+$("formCode").onsubmit = async e => {
+  e.preventDefault();
+  $("msgCode").textContent = "Vérification…"; $("msgCode").className = "msg";
+  try {
+    await post({code: $("code").value, verifier: true});
+    code = $("code").value;
+    await charger();
+    $("connexion").style.display = "none";
+    $("formulaire").style.display = "block";
+  } catch (err) {
+    $("msgCode").textContent = err.message; $("msgCode").className = "msg err";
+  }
+};
+
+$("formulaire").onsubmit = async e => {
+  e.preventDefault();
+  const horaires = {};
+  document.querySelectorAll("#horaires input").forEach(i => {
+    if (i.value.trim()) horaires[i.dataset.jour] = i.value.trim();
+  });
+  const donnees = {code, lycee: $("lycee").value, infirmiere: $("infirmiere").value, horaires};
+  if ($("nouveau").value) donnees.nouveau_code = $("nouveau").value;
+  $("enregistrer").disabled = true;
+  $("msg").textContent = "Enregistrement…"; $("msg").className = "msg";
+  try {
+    await post(donnees);
+    if (donnees.nouveau_code) { code = donnees.nouveau_code; $("nouveau").value = ""; }
+    $("msg").textContent = "Enregistré ✓ L'affichage se met à jour dans quelques secondes.";
+    $("msg").className = "msg ok";
+  } catch (err) {
+    $("msg").textContent = err.message; $("msg").className = "msg err";
+  } finally {
+    $("enregistrer").disabled = false;
+  }
+};
+</script>
+</body>
+</html>
